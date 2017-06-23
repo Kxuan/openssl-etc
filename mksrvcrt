@@ -1,0 +1,109 @@
+#!/bin/bash
+
+declare -a san
+declare -A subj
+subj=(
+["CN"]="??"
+["C"]="CN"
+["ST"]="Beijing"
+["L"]="Xiaomi"
+["O"]="kXuan"
+["OU"]="kXuan"
+)
+
+getSubject() {
+    local k
+    for k in "${!subj[@]}"; do
+        echo -n "/${k}=${subj[$k]}"
+    done
+}
+printConfig() {
+       echo "\
+Configuration
+=============================
+Subject: $(getSubject)
+SAN List:" 
+    i=0
+    for v in "${san[@]}"; do
+        let i++
+        echo "   $i) $v"
+    done
+}
+
+editSubject() {
+    local k, v
+
+    getSubject
+    read -p "Which subject? " k || return
+    read -p "Value? " v || return
+    subj[$k]="$v"
+}
+
+sanAddDNS() {
+    local dns
+    read -p "DNS? " dns
+    if [[ -n $dns ]]; then
+        san+=("DNS:$dns")
+    fi
+}
+
+sanAddIP() {
+    local ip
+    read -p "IP? " ip
+
+    if [[ -n $ip ]]; then
+        san+=("IP:$ip")
+    fi
+}
+
+sanRemove() {
+    local i
+    read -p "index? " i
+    unset san[$i]
+    san=("${san[@]}")
+}
+
+sign() {
+    local -x SAN
+    local commonName="${subj["CN"]}"
+    local IFS
+    
+    IFS=","
+    SAN="${san[*]}"
+openssl req -new -verbose \
+    -config etc/server.conf \
+    -subj "$(getSubject)" \
+    -out certs/"$commonName".csr \
+    -keyout certs/"$commonName".key &&
+openssl ca \
+    -config etc/signing-ca.conf \
+    -in certs/"$commonName".csr \
+    -out certs/"$commonName".crt \
+    -extensions server_ext &&
+    exit
+}
+
+menu() {
+    printConfig
+
+    select s in \
+    "edit subject" \
+    "SAN: add DNS" \
+    "SAN: add IP" \
+    "SAN: remove" \
+    "sign"; do
+    case $REPLY in 
+        1) editSubject;;
+        2) sanAddDNS ;;
+        3) sanAddIP ;;
+        4) sanRemove ;;
+        5) sign ;;
+        *) printConfig ;;
+    esac
+    done
+}
+
+
+read -p "Common Name? " commonName || exit
+subj["CN"]="$commonName"
+menu
